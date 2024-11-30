@@ -1,1 +1,2 @@
 hello fred!
+i forgt to write second commit
