@@ -1,108 +1,456 @@
-Processing: SouthWest_2_56.3 | samples: 19
-Processing: SouthWest_1_56.3 | samples: 18
-Processing: South_2_56.3 | samples: 46
-Processing: South_1_56.3 | samples: 29
-Processing: South_1_39.1 | samples: 75
-Processing: NorthWest_2_56.3 | samples: 64
-Processing: NorthWest_1_100 | samples: 42
-Processing: NorthWest_1_56.3 | samples: 42
-Processing: NorthWest_1_25 | samples: 41
-Processing: NorthWest_0.7_56.3 | samples: 17
-Processing: NorthWest_0.4_100 | samples: 42
-Processing: North_2_25 | samples: 38
-Processing: North_0.7_39.1 | samples: 45
+# =========================================================
+# Batch Validation: Wavelet+AR vs STL+AR
+# Across all runs using Middle + Last test segments
+# Saves CSV results + RMSE/MAE/R2 bar plots
+# =========================================================
 
-===== FULL RESULTS =====
-              run_name signal        method  samples  middle_RMSE  middle_MAE  \
-0     SouthWest_2_56.3     gx      Pure_STL       19     0.441355    0.419775   
-1     SouthWest_2_56.3     gx  Pure_Wavelet       19     0.441355    0.419775   
-2     SouthWest_1_56.3     gx      Pure_STL       18     0.123776    0.122711   
-3     SouthWest_1_56.3     gx  Pure_Wavelet       18     0.123776    0.122711   
-4         South_2_56.3     gx      Pure_STL       46     0.410704    0.369501   
-5         South_2_56.3     gx  Pure_Wavelet       46     2.190478    1.982434   
-6         South_1_56.3     gx      Pure_STL       29     0.092162    0.071612   
-7         South_1_56.3     gx  Pure_Wavelet       29     0.092162    0.071612   
-8         South_1_39.1     gx      Pure_STL       75     0.069952    0.050852   
-9         South_1_39.1     gx  Pure_Wavelet       75     0.193334    0.163816   
-10    NorthWest_2_56.3     gx      Pure_STL       64     0.230343    0.197108   
-11    NorthWest_2_56.3     gx  Pure_Wavelet       64     0.514182    0.492248   
-12     NorthWest_1_100     gx      Pure_STL       42     0.323356    0.265495   
-13     NorthWest_1_100     gx  Pure_Wavelet       42     0.285707    0.231557   
-14    NorthWest_1_56.3     gx      Pure_STL       42     0.185669    0.144817   
-15    NorthWest_1_56.3     gx  Pure_Wavelet       42     1.239115    1.091223   
-16      NorthWest_1_25     gx      Pure_STL       41     0.120139    0.088585   
-17      NorthWest_1_25     gx  Pure_Wavelet       41     0.165913    0.145356   
-18  NorthWest_0.7_56.3     gx      Pure_STL       17     0.071200    0.060582   
-19  NorthWest_0.7_56.3     gx  Pure_Wavelet       17     0.071200    0.060582   
-20   NorthWest_0.4_100     gx      Pure_STL       42     0.187884    0.174430   
-21   NorthWest_0.4_100     gx  Pure_Wavelet       42     0.355240    0.330791   
-22          North_2_25     gx      Pure_STL       38     0.238084    0.190713   
-23          North_2_25     gx  Pure_Wavelet       38     1.366560    1.269368   
-24      North_0.7_39.1     gx      Pure_STL       45     0.200051    0.163418   
-25      North_0.7_39.1     gx  Pure_Wavelet       45     1.373928    1.171704   
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 
-     middle_R2  last_RMSE  last_MAE    last_R2  avg_RMSE   avg_MAE  \
-0    -9.481958   0.296939  0.274285  -7.944224  0.369147  0.347030   
-1    -9.481958   0.112183  0.097743  -0.276614  0.276769  0.258759   
-2    -0.081005   0.128979  0.097871  -1.663379  0.126378  0.110291   
-3    -0.081005   0.165146  0.104020  -3.366451  0.144461  0.113365   
-4    -1.791559   0.333178  0.282035  -5.201018  0.371941  0.325768   
-5   -78.408640   0.353003  0.306176  -5.960926  1.271741  1.144305   
-6    -0.246579   0.424939  0.390284  -0.292621  0.258550  0.230948   
-7    -0.246579   0.487629  0.441475  -0.702149  0.289895  0.256544   
-8    -0.875825   0.315448  0.258626  -0.514885  0.192700  0.154739   
-9   -13.328742   0.271239  0.217002  -0.120027  0.232286  0.190409   
-10   -1.950184   0.165553  0.144416  -0.058035  0.197948  0.170762   
-11  -13.700489   0.198188  0.165833  -0.516291  0.356185  0.329041   
-12   -4.266411   0.351488  0.307332  -1.494206  0.337422  0.286413   
-13   -3.111435   0.760904  0.691878 -10.688845  0.523305  0.461717   
-14   -7.462128   0.213174  0.192708  -5.387973  0.199421  0.168762   
-15 -375.898219   0.123277  0.109789  -1.136278  0.681196  0.600506   
-16   -2.177080   0.361638  0.251267  -0.544999  0.240888  0.169926   
-17   -5.059296   0.480405  0.380329  -1.726435  0.323159  0.262843   
-18   -2.623164   0.343016  0.276339  -0.126554  0.207108  0.168461   
-19   -2.623164   0.446407  0.297275  -0.908025  0.258803  0.178929   
-20  -12.312256   0.152419  0.140860  -1.761661  0.170152  0.157645   
-21  -46.590151   0.102972  0.067487  -0.260464  0.229106  0.199139   
-22   -0.184056   0.145203  0.104516   0.228558  0.191643  0.147614   
-23  -38.009405   0.215074  0.184387  -0.692511  0.790817  0.726877   
-24   -0.699961   0.384712  0.293805  -0.445451  0.292381  0.228611   
-25  -79.183807   0.402987  0.337188  -0.586040  0.888458  0.754446   
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-        avg_R2  middle_start  middle_end  last_start  last_end  
-0    -8.713091             8          11          16        19  
-1    -4.879286             8          11          16        19  
-2    -0.872192             8          11          15        18  
-3    -1.723728             8          11          15        18  
-4    -3.496289            20          29          37        46  
-5   -42.184783            20          29          37        46  
-6    -0.269600            13          18          24        29  
-7    -0.474364            13          18          24        29  
-8    -0.695355            33          48          60        75  
-9    -6.724384            33          48          60        75  
-10   -1.004110            28          40          52        64  
-11   -7.108390            28          40          52        64  
-12   -2.880308            18          26          34        42  
-13   -6.900140            18          26          34        42  
-14   -6.425051            18          26          34        42  
-15 -188.517249            18          26          34        42  
-16   -1.361040            18          26          33        41  
-17   -3.392866            18          26          33        41  
-18   -1.374859             7          10          14        17  
-19   -1.765595             7          10          14        17  
-20   -7.036959            18          26          34        42  
-21  -23.425307            18          26          34        42  
-22    0.022251            17          24          31        38  
-23  -19.350958            17          24          31        38  
-24   -0.572706            20          29          36        45  
-25  -39.884924            20          29          36        45  
+from statsmodels.tsa.ar_model import AutoReg
+from statsmodels.tsa.seasonal import STL
 
-Saved full results to:
-/content/drive/MyDrive/validation_pure_stl_wavelet/pure_stl_wavelet_validation_gx.csv
+try:
+    import pywt
+except ImportError:
+    !pip install PyWavelets
+    import pywt
 
-===== SUMMARY =====
-              avg_RMSE             avg_MAE               avg_R2           
-                  mean       std      mean       std       mean        std
-method                                                                    
-Pure_STL      0.242745  0.078225  0.205152  0.073427  -2.667639   2.902910
-Pure_Wavelet  0.482014  0.333641  0.421298  0.303352 -26.640921  50.654639
+# =========================================================
+# SETTINGS
+# =========================================================
+
+base_dir = "/content/drive/MyDrive/Final_Manual_Dataset_Augmented"
+
+run_names = [
+    "SouthWest_2_56.3",
+    "SouthWest_1_56.3",
+    "South_2_56.3",
+    "South_1_56.3",
+    "South_1_39.1",
+    "NorthWest_2_56.3",
+    "NorthWest_1_100",
+    "NorthWest_1_56.3",
+    "NorthWest_1_25",
+    "NorthWest_0.7_56.3",
+    "NorthWest_0.4_100",
+    "North_2_25",
+    "North_0.7_39.1"
+]
+
+signal_name = "gx"   # change to gy, gz, ax, ay, az if needed
+
+save_dir = "/content/drive/MyDrive/validation_wavelet_AR_STL_AR"
+os.makedirs(save_dir, exist_ok=True)
+
+test_ratio = 0.20
+
+ar_lag = 2
+
+wavelet_name = "db4"
+wavelet_level = 2
+
+stl_period = 6
+
+# =========================================================
+# METRICS
+# =========================================================
+
+def compute_metrics(y_true, y_pred):
+    return {
+        "RMSE": np.sqrt(mean_squared_error(y_true, y_pred)),
+        "MAE": mean_absolute_error(y_true, y_pred),
+        "R2": r2_score(y_true, y_pred)
+    }
+
+# =========================================================
+# AR FORECAST HELPER
+# =========================================================
+
+def ar_forecast(series, n_steps, lag=2):
+
+    if n_steps == 0:
+        return np.array([])
+
+    if len(series) <= lag + 2:
+        return np.ones(n_steps) * series[-1]
+
+    lag = min(lag, len(series) - 2)
+
+    try:
+        model = AutoReg(series, lags=lag, old_names=False).fit()
+
+        pred = model.predict(
+            start=len(series),
+            end=len(series) + n_steps - 1,
+            dynamic=False
+        )
+
+        return np.array(pred)
+
+    except Exception:
+        return np.ones(n_steps) * series[-1]
+
+# =========================================================
+# WAVELET + AR FORECAST
+# =========================================================
+
+def wavelet_ar_forecast(train_signal, n_steps, wavelet_name="db4", level=2, lag=2):
+
+    if n_steps == 0:
+        return np.array([])
+
+    try:
+        max_level = pywt.dwt_max_level(
+            data_len=len(train_signal),
+            filter_len=pywt.Wavelet(wavelet_name).dec_len
+        )
+
+        level = min(level, max_level)
+
+        if level < 1:
+            return ar_forecast(train_signal, n_steps, lag)
+
+        coeffs = pywt.wavedec(
+            train_signal,
+            wavelet=wavelet_name,
+            level=level,
+            mode="symmetric"
+        )
+
+        components = []
+
+        for i in range(len(coeffs)):
+
+            coeffs_component = []
+
+            for j, c in enumerate(coeffs):
+                if i == j:
+                    coeffs_component.append(c)
+                else:
+                    coeffs_component.append(np.zeros_like(c))
+
+            component = pywt.waverec(
+                coeffs_component,
+                wavelet=wavelet_name,
+                mode="symmetric"
+            )
+
+            component = component[:len(train_signal)]
+            components.append(component)
+
+        future_components = []
+
+        for comp in components:
+            comp_future = ar_forecast(comp, n_steps, lag)
+            future_components.append(comp_future)
+
+        future_components = np.array(future_components)
+
+        forecast = future_components.sum(axis=0)
+
+        return forecast
+
+    except Exception:
+        return ar_forecast(train_signal, n_steps, lag)
+
+# =========================================================
+# STL + AR FORECAST
+# =========================================================
+
+def stl_ar_forecast(train_signal, n_steps, stl_period=6, lag=2):
+
+    if n_steps == 0:
+        return np.array([])
+
+    if stl_period >= len(train_signal) // 2:
+        return ar_forecast(train_signal, n_steps, lag)
+
+    try:
+        stl = STL(train_signal, period=stl_period, robust=True)
+        result = stl.fit()
+
+        trend = result.trend
+        seasonal = result.seasonal
+        residual = result.resid
+
+        trend_future = ar_forecast(trend, n_steps, lag)
+
+        last_seasonal_cycle = seasonal[-stl_period:]
+
+        seasonal_future = np.tile(
+            last_seasonal_cycle,
+            int(np.ceil(n_steps / stl_period))
+        )[:n_steps]
+
+        # Conservative residual forecast
+        residual_future = np.zeros(n_steps)
+
+        forecast = trend_future + seasonal_future + residual_future
+
+        return forecast
+
+    except Exception:
+        return ar_forecast(train_signal, n_steps, lag)
+
+# =========================================================
+# VALIDATION FUNCTION
+# =========================================================
+
+def validate_method(signal_scaled, method_name):
+
+    n = len(signal_scaled)
+    test_len = max(3, int(n * test_ratio))
+
+    # Middle test
+    middle_start = int(n * 0.45)
+    middle_end = middle_start + test_len
+
+    if middle_end >= n:
+        middle_end = n - test_len
+        middle_start = middle_end - test_len
+
+    middle_train = signal_scaled[:middle_start]
+    middle_test = signal_scaled[middle_start:middle_end]
+
+    # Last test
+    last_start = n - test_len
+    last_end = n
+
+    last_train = signal_scaled[:last_start]
+    last_test = signal_scaled[last_start:last_end]
+
+    if method_name == "Wavelet_AR":
+
+        middle_pred = wavelet_ar_forecast(
+            middle_train,
+            len(middle_test),
+            wavelet_name=wavelet_name,
+            level=wavelet_level,
+            lag=ar_lag
+        )
+
+        last_pred = wavelet_ar_forecast(
+            last_train,
+            len(last_test),
+            wavelet_name=wavelet_name,
+            level=wavelet_level,
+            lag=ar_lag
+        )
+
+    elif method_name == "STL_AR":
+
+        middle_pred = stl_ar_forecast(
+            middle_train,
+            len(middle_test),
+            stl_period=stl_period,
+            lag=ar_lag
+        )
+
+        last_pred = stl_ar_forecast(
+            last_train,
+            len(last_test),
+            stl_period=stl_period,
+            lag=ar_lag
+        )
+
+    else:
+        raise ValueError("Unknown method")
+
+    middle_metrics = compute_metrics(middle_test, middle_pred)
+    last_metrics = compute_metrics(last_test, last_pred)
+
+    return {
+        "middle_RMSE": middle_metrics["RMSE"],
+        "middle_MAE": middle_metrics["MAE"],
+        "middle_R2": middle_metrics["R2"],
+
+        "last_RMSE": last_metrics["RMSE"],
+        "last_MAE": last_metrics["MAE"],
+        "last_R2": last_metrics["R2"],
+
+        "avg_RMSE": (middle_metrics["RMSE"] + last_metrics["RMSE"]) / 2,
+        "avg_MAE": (middle_metrics["MAE"] + last_metrics["MAE"]) / 2,
+        "avg_R2": (middle_metrics["R2"] + last_metrics["R2"]) / 2,
+
+        "middle_start": middle_start,
+        "middle_end": middle_end,
+        "last_start": last_start,
+        "last_end": last_end
+    }, middle_pred, last_pred
+
+# =========================================================
+# MAIN LOOP
+# =========================================================
+
+methods = ["Wavelet_AR", "STL_AR"]
+
+all_results = []
+
+for run_name in run_names:
+
+    csv_path = os.path.join(base_dir, run_name, "data.csv")
+
+    if not os.path.exists(csv_path):
+        print("Missing:", csv_path)
+        continue
+
+    df = pd.read_csv(csv_path)
+
+    if signal_name not in df.columns:
+        print(f"{signal_name} not found in {run_name}")
+        continue
+
+    signal = df[signal_name].values.astype(float)
+
+    if len(signal) < 15:
+        print("Skipping too-short run:", run_name)
+        continue
+
+    scaler = MinMaxScaler()
+    signal_scaled = scaler.fit_transform(signal.reshape(-1, 1)).flatten()
+
+    print("Processing:", run_name, "| samples:", len(signal_scaled))
+
+    for method in methods:
+
+        try:
+            result, middle_pred, last_pred = validate_method(signal_scaled, method)
+
+            row = {
+                "run_name": run_name,
+                "signal": signal_name,
+                "method": method,
+                "samples": len(signal_scaled),
+                **result
+            }
+
+            all_results.append(row)
+
+            # Save validation plot per run/method
+            plt.figure(figsize=(14, 6))
+
+            plt.plot(signal_scaled, marker="o", label="Real signal")
+
+            plt.plot(
+                range(result["middle_start"], result["middle_end"]),
+                middle_pred,
+                marker="x",
+                linewidth=3,
+                label="Middle prediction"
+            )
+
+            plt.plot(
+                range(result["last_start"], result["last_end"]),
+                last_pred,
+                marker="x",
+                linewidth=3,
+                label="Last prediction"
+            )
+
+            plt.axvline(result["middle_start"], linestyle="--", color="black", label="Middle start")
+            plt.axvline(result["middle_end"], linestyle="--", color="gray", label="Middle end")
+            plt.axvline(result["last_start"], linestyle=":", color="red", label="Last start")
+
+            plt.title(
+                f"{method} Validation ({run_name}, {signal_name})\n"
+                f"Avg RMSE={result['avg_RMSE']:.3f}, Avg MAE={result['avg_MAE']:.3f}, Avg R²={result['avg_R2']:.3f}"
+            )
+
+            plt.xlabel("Sample Index")
+            plt.ylabel("Normalized Signal")
+            plt.legend()
+            plt.grid()
+
+            plot_path = f"{save_dir}/{run_name}_{signal_name}_{method}_validation.png"
+            plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+            plt.close()
+
+        except Exception as e:
+            print(f"Failed {run_name} - {method}: {e}")
+
+# =========================================================
+# SAVE RESULTS
+# =========================================================
+
+results_df = pd.DataFrame(all_results)
+
+results_path = f"{save_dir}/validation_wavelet_AR_STL_AR_{signal_name}.csv"
+results_df.to_csv(results_path, index=False)
+
+print("\n===== FULL RESULTS =====")
+print(results_df)
+
+print("\nSaved full results to:")
+print(results_path)
+
+# =========================================================
+# SUMMARY
+# =========================================================
+
+summary = results_df.groupby("method")[[
+    "avg_RMSE",
+    "avg_MAE",
+    "avg_R2"
+]].agg(["mean", "std"])
+
+summary_path = f"{save_dir}/summary_wavelet_AR_STL_AR_{signal_name}.csv"
+summary.to_csv(summary_path)
+
+print("\n===== SUMMARY =====")
+print(summary)
+
+print("\nSaved summary to:")
+print(summary_path)
+
+# =========================================================
+# BAR GRAPHS
+# =========================================================
+
+mean_results = results_df.groupby("method")[[
+    "avg_RMSE",
+    "avg_MAE",
+    "avg_R2"
+]].mean()
+
+# RMSE + MAE in one graph
+plt.figure(figsize=(9, 5))
+
+mean_results[["avg_RMSE", "avg_MAE"]].plot(
+    kind="bar",
+    figsize=(9, 5)
+)
+
+plt.title(f"Wavelet+AR vs STL+AR: Average RMSE and MAE ({signal_name})")
+plt.ylabel("Error")
+plt.xlabel("Method")
+plt.grid(axis="y")
+plt.tight_layout()
+
+plot_path = f"{save_dir}/bar_RMSE_MAE_wavelet_AR_STL_AR_{signal_name}.png"
+plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+plt.show()
+
+print("Saved RMSE/MAE plot to:", plot_path)
+
+# R2 graph
+plt.figure(figsize=(8, 5))
+
+mean_results["avg_R2"].plot(kind="bar")
+
+plt.title(f"Wavelet+AR vs STL+AR: Average R² ({signal_name})")
+plt.ylabel("Average R²")
+plt.xlabel("Method")
+plt.grid(axis="y")
+plt.tight_layout()
+
+plot_path = f"{save_dir}/bar_R2_wavelet_AR_STL_AR_{signal_name}.png"
+plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+plt.show()
+
+print("Saved R2 plot to:", plot_path)
