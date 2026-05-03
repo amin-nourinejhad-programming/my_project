@@ -1,6 +1,6 @@
 # =========================================================
 # Compute required IMU samples for ITTC wave-cycle criterion
-# For all selected tank-test runs
+# Robust version: handles duplicate/zero timestamps
 # =========================================================
 
 import os
@@ -19,10 +19,7 @@ os.makedirs(save_dir, exist_ok=True)
 
 required_wave_cycles = 10
 
-# Manually define wave periods from the tank-test matrix
-# Format:
-# RunName : Wave period [seconds]
-
+# Wave periods from tank-test matrix
 wave_periods = {
     "SouthWest_2_56.3": 0.600,
     "SouthWest_1_56.3": 0.600,
@@ -62,35 +59,53 @@ for run_name, wave_period in wave_periods.items():
         print(f"timestamp_iso_ms missing in {run_name}")
         continue
 
-    # Convert timestamp
-    df["timestamp"] = pd.to_datetime(df["timestamp_iso_ms"])
+    df["timestamp"] = pd.to_datetime(df["timestamp_iso_ms"], errors="coerce")
 
-    # Estimate IMU frequency
+    df = df.dropna(subset=["timestamp"]).copy()
+
+    if len(df) < 2:
+        print(f"Skipping {run_name}: not enough valid timestamps")
+        continue
+
+    # Sort by timestamp
+    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    # Compute time differences
     time_diffs = df["timestamp"].diff().dropna()
     time_diffs_sec = time_diffs.dt.total_seconds()
 
-    avg_dt = time_diffs_sec.mean()
-    median_dt = time_diffs_sec.median()
+    # Remove zero or negative time differences
+    valid_time_diffs_sec = time_diffs_sec[time_diffs_sec > 0]
+
+    if len(valid_time_diffs_sec) == 0:
+        print(f"Skipping {run_name}: all timestamp differences are zero or invalid")
+        continue
+
+    avg_dt = valid_time_diffs_sec.mean()
+    median_dt = valid_time_diffs_sec.median()
 
     imu_freq_mean = 1 / avg_dt
     imu_freq_median = 1 / median_dt
 
-    # Current samples
     current_samples = len(df)
 
-    # Required samples according to:
-    # N_required = required_wave_cycles * wave_period * imu_frequency
-    required_samples_mean = int(np.ceil(
-        required_wave_cycles * wave_period * imu_freq_mean
-    ))
+    required_samples_mean = int(
+        np.ceil(required_wave_cycles * wave_period * imu_freq_mean)
+    )
 
-    required_samples_median = int(np.ceil(
-        required_wave_cycles * wave_period * imu_freq_median
-    ))
+    required_samples_median = int(
+        np.ceil(required_wave_cycles * wave_period * imu_freq_median)
+    )
 
-    # Missing samples
-    missing_samples_mean = max(0, required_samples_mean - current_samples)
-    missing_samples_median = max(0, required_samples_median - current_samples)
+    missing_samples_mean = max(
+        0,
+        required_samples_mean - current_samples
+    )
+
+    missing_samples_median = max(
+        0,
+        required_samples_median - current_samples
+    )
 
     results.append({
         "run_name": run_name,
@@ -109,7 +124,9 @@ for run_name, wave_period in wave_periods.items():
         "required_samples_median_freq": required_samples_median,
 
         "missing_samples_mean_freq": missing_samples_mean,
-        "missing_samples_median_freq": missing_samples_median
+        "missing_samples_median_freq": missing_samples_median,
+
+        "zero_or_invalid_time_diffs_removed": len(time_diffs_sec) - len(valid_time_diffs_sec)
     })
 
 # =========================================================
@@ -121,14 +138,18 @@ results_df = pd.DataFrame(results)
 print("\n===== ITTC SAMPLE REQUIREMENT RESULTS =====")
 print(results_df)
 
-save_path = os.path.join(save_dir, "ittc_required_samples_all_runs.csv")
+save_path = os.path.join(
+    save_dir,
+    "ittc_required_samples_all_runs.csv"
+)
+
 results_df.to_csv(save_path, index=False)
 
 print("\nSaved results to:")
 print(save_path)
 
 # =========================================================
-# SIMPLE BAR PLOT: CURRENT VS REQUIRED SAMPLES
+# BAR PLOT: CURRENT VS REQUIRED SAMPLES
 # =========================================================
 
 plt.figure(figsize=(14, 6))
@@ -161,7 +182,11 @@ plt.legend()
 plt.grid(axis="y")
 plt.tight_layout()
 
-plot_path = os.path.join(save_dir, "current_vs_required_samples.png")
+plot_path = os.path.join(
+    save_dir,
+    "current_vs_required_samples.png"
+)
+
 plt.savefig(plot_path, dpi=300, bbox_inches="tight")
 plt.show()
 
@@ -186,7 +211,11 @@ plt.title("Additional IMU samples required to satisfy ITTC criterion")
 plt.grid(axis="y")
 plt.tight_layout()
 
-plot_path = os.path.join(save_dir, "missing_samples_per_run.png")
+plot_path = os.path.join(
+    save_dir,
+    "missing_samples_per_run.png"
+)
+
 plt.savefig(plot_path, dpi=300, bbox_inches="tight")
 plt.show()
 
