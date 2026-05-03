@@ -1,25 +1,14 @@
 # =========================================================
-# Wavelet + AR Extension for ALL runs
-# Target: 20 wave cycles
-# Saves:
-#   1. extended CSV inside each run folder
-#   2. PNG plot inside each run folder
-#   3. summary CSV
+# IMU Window Detection:
+# middle line -> crest -> trough -> middle line
+# For gx signal across all runs
 # =========================================================
 
 import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
-from statsmodels.tsa.ar_model import AutoReg
-from sklearn.preprocessing import MinMaxScaler
-
-try:
-    import pywt
-except ImportError:
-    !pip install PyWavelets
-    import pywt
+from scipy.signal import find_peaks
 
 # =========================================================
 # SETTINGS
@@ -27,138 +16,134 @@ except ImportError:
 
 base_dir = "/content/drive/MyDrive/Final_Manual_Dataset_Augmented"
 
-required_wave_cycles = 20
+run_names = [
+    "SouthWest_2_56.3",
+    "SouthWest_1_56.3",
+    "South_2_56.3",
+    "South_1_56.3",
+    "South_1_39.1",
+    "NorthWest_2_56.3",
+    "NorthWest_1_100",
+    "NorthWest_1_56.3",
+    "NorthWest_1_25",
+    "NorthWest_0.7_56.3",
+    "NorthWest_0.4_100",
+    "North_2_25",
+    "North_0.7_39.1"
+]
 
-best_lag = 2
-wavelet_name = "db4"
-wavelet_level = 2
+signal_name = "gx"
 
-imu_columns = ["ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz"]
+extended_csv_name = "data_wavelet_AR_extended_20cycles.csv"
 
-wave_periods = {
-    "SouthWest_2_56.3": 0.600,
-    "SouthWest_1_56.3": 0.600,
-
-    "South_2_56.3": 0.600,
-    "South_1_56.3": 0.600,
-    "South_1_39.1": 0.500,
-
-    "NorthWest_2_56.3": 0.600,
-    "NorthWest_1_100": 0.800,
-    "NorthWest_1_56.3": 0.600,
-    "NorthWest_1_25": 0.400,
-    "NorthWest_0.7_56.3": 0.600,
-    "NorthWest_0.4_100": 0.800,
-
-    "North_2_25": 0.400,
-    "North_0.7_39.1": 0.500
-}
+save_summary_path = os.path.join(
+    base_dir,
+    "gx_middle_crest_trough_middle_window_summary.csv"
+)
 
 # =========================================================
-# HELPERS
+# HELPER FUNCTIONS
 # =========================================================
 
-def estimate_imu_frequency(df):
-    df["timestamp"] = pd.to_datetime(df["timestamp_iso_ms"], errors="coerce")
-    df = df.dropna(subset=["timestamp"]).copy()
-    df = df.sort_values("timestamp").reset_index(drop=True)
+def find_previous_middle_crossing(signal, mid_value, peak_idx):
+    """
+    Find the last index before crest where signal crosses the middle line.
+    """
+    for i in range(peak_idx - 1, 0, -1):
+        y1 = signal[i - 1] - mid_value
+        y2 = signal[i] - mid_value
 
-    time_diffs = df["timestamp"].diff().dropna()
-    time_diffs_sec = time_diffs.dt.total_seconds()
-    time_diffs_sec = time_diffs_sec[time_diffs_sec > 0]
+        if y1 == 0:
+            return i - 1
 
-    if len(time_diffs_sec) == 0:
-        raise ValueError("No valid timestamp differences found.")
+        if y1 * y2 <= 0:
+            return i
 
-    avg_dt = time_diffs_sec.mean()
-    imu_freq = 1 / avg_dt
-
-    return df, avg_dt, imu_freq
-
-
-def ar_forecast(series, n_steps, lag):
-    if n_steps == 0:
-        return np.array([])
-
-    if len(series) <= lag + 2:
-        return np.ones(n_steps) * series[-1]
-
-    lag = min(lag, len(series) - 2)
-
-    try:
-        model = AutoReg(series, lags=lag, old_names=False).fit()
-        pred = model.predict(
-            start=len(series),
-            end=len(series) + n_steps - 1,
-            dynamic=False
-        )
-        return np.array(pred)
-
-    except Exception:
-        return np.ones(n_steps) * series[-1]
+    return 0
 
 
-def wavelet_ar_forecast(signal, n_future, wavelet_name="db4", level=2, lag=2):
-    if n_future == 0:
-        return np.array([])
+def find_next_middle_crossing(signal, mid_value, trough_idx):
+    """
+    Find the first index after trough where signal crosses the middle line.
+    """
+    for i in range(trough_idx + 1, len(signal)):
+        y1 = signal[i - 1] - mid_value
+        y2 = signal[i] - mid_value
 
-    scaler = MinMaxScaler()
-    signal_scaled = scaler.fit_transform(signal.reshape(-1, 1)).flatten()
+        if y2 == 0:
+            return i
 
-    max_level = pywt.dwt_max_level(
-        data_len=len(signal_scaled),
-        filter_len=pywt.Wavelet(wavelet_name).dec_len
+        if y1 * y2 <= 0:
+            return i
+
+    return len(signal) - 1
+
+
+def detect_middle_crest_trough_middle_window(signal):
+    """
+    Detect dominant pattern:
+    middle -> crest -> trough -> middle
+    """
+
+    # Middle line can be mean or median
+    mid_value = np.mean(signal)
+
+    # Detect crests and troughs
+    crests, _ = find_peaks(signal, distance=3)
+    troughs, _ = find_peaks(-signal, distance=3)
+
+    if len(crests) == 0 or len(troughs) == 0:
+        return None
+
+    best_pair = None
+    best_amplitude = -np.inf
+
+    # Find crest followed by trough
+    for crest_idx in crests:
+        troughs_after = troughs[troughs > crest_idx]
+
+        if len(troughs_after) == 0:
+            continue
+
+        trough_idx = troughs_after[0]
+
+        amplitude = signal[crest_idx] - signal[trough_idx]
+
+        if amplitude > best_amplitude:
+            best_amplitude = amplitude
+            best_pair = (crest_idx, trough_idx)
+
+    if best_pair is None:
+        return None
+
+    crest_idx, trough_idx = best_pair
+
+    # Find middle-line crossings
+    start_idx = find_previous_middle_crossing(
+        signal,
+        mid_value,
+        crest_idx
     )
 
-    level = min(level, max_level)
-
-    if level < 1:
-        forecast_scaled = ar_forecast(signal_scaled, n_future, lag)
-        return scaler.inverse_transform(forecast_scaled.reshape(-1, 1)).flatten()
-
-    coeffs = pywt.wavedec(
-        signal_scaled,
-        wavelet=wavelet_name,
-        level=level,
-        mode="symmetric"
+    end_idx = find_next_middle_crossing(
+        signal,
+        mid_value,
+        trough_idx
     )
 
-    components = []
+    window_size = end_idx - start_idx + 1
 
-    for i in range(len(coeffs)):
-        coeffs_component = []
-
-        for j, c in enumerate(coeffs):
-            if i == j:
-                coeffs_component.append(c)
-            else:
-                coeffs_component.append(np.zeros_like(c))
-
-        component = pywt.waverec(
-            coeffs_component,
-            wavelet=wavelet_name,
-            mode="symmetric"
-        )
-
-        component = component[:len(signal_scaled)]
-        components.append(component)
-
-    future_components = []
-
-    for comp in components:
-        comp_future = ar_forecast(comp, n_future, lag)
-        future_components.append(comp_future)
-
-    future_components = np.array(future_components)
-
-    forecast_scaled = future_components.sum(axis=0)
-
-    forecast = scaler.inverse_transform(
-        forecast_scaled.reshape(-1, 1)
-    ).flatten()
-
-    return forecast
-
+    return {
+        "mid_value": mid_value,
+        "crest_idx": crest_idx,
+        "trough_idx": trough_idx,
+        "start_idx": start_idx,
+        "end_idx": end_idx,
+        "window_size_samples": window_size,
+        "crest_value": signal[crest_idx],
+        "trough_value": signal[trough_idx],
+        "amplitude": best_amplitude
+    }
 
 # =========================================================
 # MAIN LOOP
@@ -166,14 +151,11 @@ def wavelet_ar_forecast(signal, n_future, wavelet_name="db4", level=2, lag=2):
 
 summary_rows = []
 
-for run_name, wave_period in wave_periods.items():
-
-    print("\n======================================")
-    print("Processing:", run_name)
-    print("======================================")
+for run_name in run_names:
 
     run_dir = os.path.join(base_dir, run_name)
-    csv_path = os.path.join(run_dir, "data.csv")
+
+    csv_path = os.path.join(run_dir, extended_csv_name)
 
     if not os.path.exists(csv_path):
         print("Missing:", csv_path)
@@ -181,229 +163,185 @@ for run_name, wave_period in wave_periods.items():
 
     df = pd.read_csv(csv_path)
 
-    if "timestamp_iso_ms" not in df.columns:
-        print("Skipping because timestamp_iso_ms is missing:", run_name)
+    if signal_name not in df.columns:
+        print("gx missing in:", run_name)
         continue
 
-    try:
-        df, avg_dt, imu_frequency = estimate_imu_frequency(df)
-    except Exception as e:
-        print("Skipping due to timestamp problem:", e)
+    signal = df[signal_name].values.astype(float)
+
+    result = detect_middle_crest_trough_middle_window(signal)
+
+    if result is None:
+        print("Could not detect window for:", run_name)
         continue
 
-    current_samples = len(df)
-
-    required_samples = int(
-        np.ceil(required_wave_cycles * wave_period * imu_frequency)
-    )
-
-    n_future = max(0, required_samples - current_samples)
-
-    print("Wave period:", wave_period)
-    print("IMU frequency:", imu_frequency)
-    print("Current samples:", current_samples)
-    print("Required samples:", required_samples)
-    print("Future samples needed:", n_future)
+    start_idx = result["start_idx"]
+    crest_idx = result["crest_idx"]
+    trough_idx = result["trough_idx"]
+    end_idx = result["end_idx"]
+    mid_value = result["mid_value"]
 
     # =====================================================
-    # Create future timestamps
+    # PLOT
     # =====================================================
-
-    last_timestamp = df["timestamp"].iloc[-1]
-
-    future_timestamps = [
-        last_timestamp + pd.to_timedelta((i + 1) * avg_dt, unit="s")
-        for i in range(n_future)
-    ]
-
-    # =====================================================
-    # Create extended dataframe
-    # =====================================================
-
-    extended_df = df.copy()
-
-    future_df = pd.DataFrame(index=range(n_future))
-
-    if n_future > 0:
-        future_df["timestamp"] = future_timestamps
-        future_df["timestamp_iso_ms"] = [
-            ts.isoformat() for ts in future_timestamps
-        ]
-
-        if "timestamp_ns" in df.columns:
-            future_df["timestamp_ns"] = [
-                int(ts.value) for ts in future_timestamps
-            ]
-
-    # =====================================================
-    # Forecast IMU columns
-    # =====================================================
-
-    available_imu_columns = [
-        col for col in imu_columns if col in df.columns
-    ]
-
-    for col in available_imu_columns:
-
-        signal = df[col].values.astype(float)
-
-        forecast = wavelet_ar_forecast(
-            signal=signal,
-            n_future=n_future,
-            wavelet_name=wavelet_name,
-            level=wavelet_level,
-            lag=best_lag
-        )
-
-        if n_future > 0:
-            future_df[col] = forecast
-
-    # =====================================================
-    # Fill non-IMU columns for forecast rows
-    # =====================================================
-
-    for col in df.columns:
-
-        if col in future_df.columns:
-            continue
-
-        if col in available_imu_columns:
-            continue
-
-        if col == "timestamp":
-            continue
-
-        if col == "timestamp_iso_ms":
-            continue
-
-        if col == "timestamp_ns":
-            continue
-
-        # labels/metadata are copied from last real row
-        if col in ["wave_height", "wave_direction", "direction", "label"]:
-            future_df[col] = df[col].iloc[-1]
-
-        # image files should be empty for generated samples
-        elif "image" in col.lower():
-            future_df[col] = None
-
-        else:
-            future_df[col] = df[col].iloc[-1]
-
-    # Add source column
-    extended_df["source"] = "real"
-
-    if n_future > 0:
-        future_df["source"] = "forecast"
-        extended_df = pd.concat(
-            [extended_df, future_df],
-            ignore_index=True
-        )
-
-    # =====================================================
-    # Save extended CSV in same run folder
-    # =====================================================
-
-    extended_csv_path = os.path.join(
-        run_dir,
-        f"data_wavelet_AR_extended_{required_wave_cycles}cycles.csv"
-    )
-
-    extended_df.to_csv(extended_csv_path, index=False)
-
-    print("Saved extended CSV:", extended_csv_path)
-
-    # =====================================================
-    # Plot main IMU signals
-    # =====================================================
-
-    plot_cols = [c for c in ["gx", "gy", "gz"] if c in extended_df.columns]
-
-    if len(plot_cols) == 0:
-        plot_cols = available_imu_columns[:3]
 
     plt.figure(figsize=(14, 6))
 
-    for col in plot_cols:
+    # Plot real and forecast separately if source exists
+    if "source" in df.columns:
+
+        real_df = df[df["source"] == "real"]
+        forecast_df = df[df["source"] == "forecast"]
+
         plt.plot(
-            range(current_samples),
-            extended_df[col].iloc[:current_samples],
+            real_df.index,
+            real_df[signal_name],
             marker="o",
-            label=f"{col} real"
+            color="blue",
+            label="Real gx"
         )
 
-        if n_future > 0:
+        if len(forecast_df) > 0:
             plt.plot(
-                range(current_samples, len(extended_df)),
-                extended_df[col].iloc[current_samples:],
+                forecast_df.index,
+                forecast_df[signal_name],
                 marker="x",
+                color="red",
                 linewidth=2,
-                label=f"{col} forecast"
+                label="Forecast gx"
             )
 
-    plt.axvline(
-        current_samples - 1,
+            plt.axvline(
+                real_df.index[-1],
+                linestyle="--",
+                color="black",
+                label="Start of extension"
+            )
+
+    else:
+        plt.plot(
+            signal,
+            marker="o",
+            color="blue",
+            label="gx"
+        )
+
+    # Middle line
+    plt.axhline(
+        mid_value,
         linestyle="--",
+        color="purple",
+        label=f"Middle line = {mid_value:.2f}"
+    )
+
+    # Window boundaries
+    plt.axvline(
+        start_idx,
+        linestyle="--",
+        color="green",
+        label=f"Window start = {start_idx}"
+    )
+
+    plt.axvline(
+        end_idx,
+        linestyle="--",
+        color="orange",
+        label=f"Window end = {end_idx}"
+    )
+
+    # Highlight window
+    plt.axvspan(
+        start_idx,
+        end_idx,
+        color="yellow",
+        alpha=0.2,
+        label=f"Detected window = {result['window_size_samples']} samples"
+    )
+
+    # Mark crest and trough
+    plt.scatter(
+        crest_idx,
+        signal[crest_idx],
+        s=140,
+        color="red",
+        label=f"Crest = {crest_idx}"
+    )
+
+    plt.scatter(
+        trough_idx,
+        signal[trough_idx],
+        s=140,
         color="black",
-        label="Start of extension"
+        label=f"Trough = {trough_idx}"
+    )
+
+    # Draw path: middle -> crest -> trough -> middle
+    plt.plot(
+        [start_idx, crest_idx, trough_idx, end_idx],
+        [signal[start_idx], signal[crest_idx], signal[trough_idx], signal[end_idx]],
+        color="magenta",
+        linewidth=3,
+        label="middle → crest → trough → middle"
     )
 
     plt.title(
-        f"Wavelet+AR IMU Extension - {run_name}\n"
-        f"{required_wave_cycles} cycles, T={wave_period}s, fs={imu_frequency:.2f}Hz"
+        f"IMU Window Detection: middle → crest → trough → middle\n"
+        f"{run_name}, gx, window = {result['window_size_samples']} samples"
     )
 
     plt.xlabel("Sample Index")
-    plt.ylabel("IMU Value")
-    plt.legend()
+    plt.ylabel("gx")
     plt.grid()
+    plt.legend()
     plt.tight_layout()
 
-    plot_path = os.path.join(
+    save_plot_path = os.path.join(
         run_dir,
-        f"wavelet_AR_extension_{required_wave_cycles}cycles.png"
+        f"gx_window_middle_crest_trough_middle_{run_name}.png"
     )
 
-    plt.savefig(plot_path, dpi=300, bbox_inches="tight")
-    plt.show()
+    plt.savefig(
+        save_plot_path,
+        dpi=300,
+        bbox_inches="tight"
+    )
 
-    print("Saved plot:", plot_path)
+    plt.close()
+
+    print("Saved:", save_plot_path)
 
     # =====================================================
-    # Add summary
+    # SAVE SUMMARY ROW
     # =====================================================
 
     summary_rows.append({
         "run_name": run_name,
-        "wave_period_sec": wave_period,
-        "required_wave_cycles": required_wave_cycles,
-        "imu_frequency_Hz": imu_frequency,
-        "avg_dt_sec": avg_dt,
-        "current_samples": current_samples,
-        "required_samples": required_samples,
-        "forecast_samples_added": n_future,
-        "extended_samples": len(extended_df),
-        "extended_csv_path": extended_csv_path,
-        "plot_path": plot_path
+        "signal": signal_name,
+        "middle_value": mid_value,
+        "window_start_middle_idx": start_idx,
+        "crest_idx": crest_idx,
+        "trough_idx": trough_idx,
+        "window_end_middle_idx": end_idx,
+        "window_size_samples": result["window_size_samples"],
+        "crest_value": result["crest_value"],
+        "trough_value": result["trough_value"],
+        "amplitude": result["amplitude"],
+        "plot_path": save_plot_path
     })
 
 # =========================================================
-# Save summary CSV
+# SAVE SUMMARY CSV
 # =========================================================
 
 summary_df = pd.DataFrame(summary_rows)
 
-summary_path = os.path.join(
-    base_dir,
-    f"wavelet_AR_extension_summary_{required_wave_cycles}cycles.csv"
+summary_df.to_csv(
+    save_summary_path,
+    index=False
 )
 
-summary_df.to_csv(summary_path, index=False)
-
-print("\n======================================")
-print("DONE")
-print("Summary saved to:")
-print(summary_path)
-print("======================================")
-
+print("\n===== SUMMARY =====")
 print(summary_df)
+
+print("\nSaved summary CSV to:")
+print(save_summary_path)
